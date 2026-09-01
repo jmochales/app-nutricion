@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -251,74 +251,66 @@ function SwipeableItem({
   onSwipeLeft: () => void;
 }) {
   const translateX = useRef(new Animated.Value(0)).current;
-  const SWIPE_THRESHOLD = -70;
-
-  const panResponder = useRef(
-    PanResponder.create({
-      // Claim the responder as soon as a clear horizontal move starts.
-      // Lower threshold + capture phase makes it reliable on web touch.
-      onMoveShouldSetPanResponder: (_, gestureState) => {
-        return (
-          item.status === 'pending' &&
-          gestureState.dx < -4 &&
-          Math.abs(gestureState.dx) > Math.abs(gestureState.dy)
-        );
-      },
-      onMoveShouldSetPanResponderCapture: (_, gestureState) => {
-        return (
-          item.status === 'pending' &&
-          gestureState.dx < -4 &&
-          Math.abs(gestureState.dx) > Math.abs(gestureState.dy)
-        );
-      },
-      onPanResponderMove: (_, gestureState) => {
-        if (gestureState.dx < 0 && item.status === 'pending') {
-          // Clamp so it doesn't drag past the row width
-          translateX.setValue(Math.max(gestureState.dx, -160));
-        }
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        if (gestureState.dx < SWIPE_THRESHOLD && item.status === 'pending') {
-          Animated.timing(translateX, {
-            toValue: -400,
-            duration: 200,
-            useNativeDriver: false,
-          }).start(() => {
-            onSwipeLeft();
-            translateX.setValue(0);
-          });
-        } else {
-          Animated.spring(translateX, {
-            toValue: 0,
-            useNativeDriver: false,
-          }).start();
-        }
-      },
-      onPanResponderTerminate: () => {
-        Animated.spring(translateX, {
-          toValue: 0,
-          useNativeDriver: false,
-        }).start();
-      },
-    }),
-  ).current;
+  const startX = useRef(0);
+  const swiping = useRef(false);
+  const SWIPE_THRESHOLD = 70;
 
   const isBought = item.status === 'bought';
   const isAvailable = item.status === 'available_at_home';
+  const isPending = item.status === 'pending';
+
+  // Native touch/mouse handlers — reliable on web
+  const handleStart = (clientX: number) => {
+    if (!isPending) return;
+    startX.current = clientX;
+    swiping.current = true;
+  };
+
+  const handleMove = (clientX: number) => {
+    if (!swiping.current || !isPending) return;
+    const dx = clientX - startX.current;
+    if (dx < 0) {
+      translateX.setValue(Math.max(dx, -160));
+    }
+  };
+
+  const handleEnd = (clientX: number) => {
+    if (!swiping.current || !isPending) return;
+    swiping.current = false;
+    const dx = clientX - startX.current;
+    if (dx < -SWIPE_THRESHOLD) {
+      Animated.timing(translateX, {
+        toValue: -400,
+        duration: 180,
+        useNativeDriver: false,
+      }).start(() => {
+        onSwipeLeft();
+        translateX.setValue(0);
+      });
+    } else {
+      Animated.spring(translateX, { toValue: 0, useNativeDriver: false }).start();
+    }
+  };
+
+  // Web pointer/touch events (work reliably in browser)
+  const webHandlers = isPending
+    ? {
+        onTouchStart: (e: any) => handleStart(e.nativeEvent.touches[0].clientX),
+        onTouchMove: (e: any) => handleMove(e.nativeEvent.touches[0].clientX),
+        onTouchEnd: (e: any) => handleEnd(e.nativeEvent.changedTouches[0].clientX),
+      }
+    : {};
 
   return (
     <View style={styles.swipeContainer}>
       {/* Background revealed on swipe */}
-      {item.status === 'pending' && (
+      {isPending && (
         <View style={styles.swipeBackground}>
-          <Text style={styles.swipeBackgroundText}>Ya lo tengo</Text>
+          <Text style={styles.swipeBackgroundText}>🏠 Ya lo tengo</Text>
         </View>
       )}
 
-      <Animated.View
-        style={[{ transform: [{ translateX }] }]}
-        {...(item.status === 'pending' ? panResponder.panHandlers : {})}
-      >
+      <Animated.View style={{ transform: [{ translateX }] }} {...webHandlers}>
         <TouchableOpacity
           style={[
             styles.shopItem,
@@ -422,13 +414,13 @@ const styles = StyleSheet.create({
   },
 
   // Swipe
-  swipeContainer: { position: 'relative', overflow: 'hidden', marginBottom: 2 },
+  swipeContainer: { position: 'relative', overflow: 'hidden', marginBottom: 4 },
   swipeBackground: {
     position: 'absolute',
     right: 0,
     top: 0,
-    bottom: 0,
-    width: '100%',
+    bottom: 4,
+    left: 0,
     backgroundColor: COLORS.warning,
     borderRadius: 12,
     justifyContent: 'center',
