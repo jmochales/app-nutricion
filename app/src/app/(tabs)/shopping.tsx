@@ -251,38 +251,54 @@ function SwipeableItem({
   onSwipeLeft: () => void;
 }) {
   const translateX = useRef(new Animated.Value(0)).current;
-  const SWIPE_THRESHOLD = -80;
+  const SWIPE_THRESHOLD = -70;
 
   const panResponder = useRef(
     PanResponder.create({
+      // Claim the responder as soon as a clear horizontal move starts.
+      // Lower threshold + capture phase makes it reliable on web touch.
       onMoveShouldSetPanResponder: (_, gestureState) => {
-        // Only respond to horizontal gestures
-        return Math.abs(gestureState.dx) > 10 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
+        return (
+          item.status === 'pending' &&
+          gestureState.dx < -4 &&
+          Math.abs(gestureState.dx) > Math.abs(gestureState.dy)
+        );
+      },
+      onMoveShouldSetPanResponderCapture: (_, gestureState) => {
+        return (
+          item.status === 'pending' &&
+          gestureState.dx < -4 &&
+          Math.abs(gestureState.dx) > Math.abs(gestureState.dy)
+        );
       },
       onPanResponderMove: (_, gestureState) => {
-        // Only allow left swipe (negative dx), and only for pending items
         if (gestureState.dx < 0 && item.status === 'pending') {
-          translateX.setValue(gestureState.dx);
+          // Clamp so it doesn't drag past the row width
+          translateX.setValue(Math.max(gestureState.dx, -160));
         }
       },
       onPanResponderRelease: (_, gestureState) => {
         if (gestureState.dx < SWIPE_THRESHOLD && item.status === 'pending') {
-          // Animate out and trigger action
           Animated.timing(translateX, {
             toValue: -400,
             duration: 200,
-            useNativeDriver: true,
+            useNativeDriver: false,
           }).start(() => {
             onSwipeLeft();
             translateX.setValue(0);
           });
         } else {
-          // Snap back
           Animated.spring(translateX, {
             toValue: 0,
-            useNativeDriver: true,
+            useNativeDriver: false,
           }).start();
         }
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(translateX, {
+          toValue: 0,
+          useNativeDriver: false,
+        }).start();
       },
     }),
   ).current;
